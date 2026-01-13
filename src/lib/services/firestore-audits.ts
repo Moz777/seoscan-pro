@@ -43,11 +43,12 @@ interface AuditDocument {
     mobile?: any;
     desktop?: any;
   };
+  htmlAnalysis?: any;
   error?: string;
 }
 
 // Convert Firestore document to Audit type
-function documentToAudit(id: string, doc: AuditDocument): Audit & { pageSpeedResults?: any; error?: string } {
+function documentToAudit(id: string, doc: AuditDocument): Audit & { pageSpeedResults?: any; htmlAnalysis?: any; error?: string } {
   return {
     id,
     userId: doc.userId,
@@ -61,6 +62,7 @@ function documentToAudit(id: string, doc: AuditDocument): Audit & { pageSpeedRes
     scores: doc.scores,
     issuesCount: doc.issuesCount,
     pageSpeedResults: doc.pageSpeedResults,
+    htmlAnalysis: doc.htmlAnalysis,
     error: doc.error,
   };
 }
@@ -131,6 +133,7 @@ export async function updateAuditInFirestore(
     scores: Audit["scores"];
     issuesCount: Audit["issuesCount"];
     pageSpeedResults: any;
+    htmlAnalysis: any;
     error: string;
   }>
 ): Promise<Audit | null> {

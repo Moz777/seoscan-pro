@@ -1,13 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAudit, updateAudit } from "@/lib/services/audit-store";
 import { runFullAnalysis, PageSpeedResult } from "@/lib/services/pagespeed";
+import { analyzeHTML, HTMLAnalysisResult } from "@/lib/services/html-analyzer";
 
 interface RouteParams {
   params: Promise<{ auditId: string }>;
 }
 
+// Calculate content score from HTML analysis
+function calculateContentScore(htmlAnalysis: HTMLAnalysisResult | null): number {
+  if (!htmlAnalysis) return 50;
+
+  let score = 100;
+  const meta = htmlAnalysis.metaTags;
+  const headings = htmlAnalysis.headings;
+  const images = htmlAnalysis.images;
+
+  // Meta tag penalties
+  if (!meta.title) score -= 15;
+  else if (meta.titleLength < 30 || meta.titleLength > 60) score -= 5;
+
+  if (!meta.description) score -= 15;
+  else if (meta.descriptionLength < 70 || meta.descriptionLength > 160) score -= 5;
+
+  if (!meta.canonical) score -= 5;
+  if (!meta.viewport) score -= 10;
+  if (!meta.language) score -= 3;
+
+  // Open Graph
+  if (!meta.ogTitle || !meta.ogDescription || !meta.ogImage) score -= 5;
+
+  // Heading penalties
+  if (headings.h1.length === 0) score -= 15;
+  else if (headings.h1.length > 1) score -= 5;
+
+  headings.issues.forEach((issue) => {
+    if (issue.severity === "critical") score -= 5;
+    else if (issue.severity === "warning") score -= 2;
+  });
+
+  // Image penalties
+  if (images.total > 0) {
+    const altPercentage = (images.withAlt / images.total) * 100;
+    if (altPercentage < 50) score -= 10;
+    else if (altPercentage < 90) score -= 5;
+  }
+
+  return Math.max(0, Math.min(100, score));
+}
+
 // Convert PageSpeed results to our report format
-function mapPageSpeedToReport(mobile: PageSpeedResult, desktop: PageSpeedResult) {
+function mapPageSpeedToReport(
+  mobile: PageSpeedResult,
+  desktop: PageSpeedResult,
+  htmlAnalysis: HTMLAnalysisResult | null
+) {
   // Calculate overall scores (weighted average)
   const mobileWeight = 0.6; // Mobile is more important for SEO
   const desktopWeight = 0.4;
@@ -32,33 +79,53 @@ function mapPageSpeedToReport(mobile: PageSpeedResult, desktop: PageSpeedResult)
     desktop.scores.bestPractices * desktopWeight
   );
 
+  // Calculate content score from HTML analysis
+  const contentScore = htmlAnalysis
+    ? calculateContentScore(htmlAnalysis)
+    : Math.round((seoScore + accessibilityScore) / 2);
+
   // Overall score is weighted combination
   const overallScore = Math.round(
-    performanceScore * 0.3 +
-    seoScore * 0.3 +
-    accessibilityScore * 0.2 +
-    bestPracticesScore * 0.2
+    performanceScore * 0.25 +
+    seoScore * 0.25 +
+    contentScore * 0.25 +
+    bestPracticesScore * 0.25
   );
 
-  // Count issues
-  const criticalCount =
+  // Count issues from PageSpeed
+  let criticalCount =
     mobile.audits.failed.filter(a => a.score === 0).length +
     desktop.audits.failed.filter(a => a.score === 0).length;
 
-  const warningsCount =
+  let warningsCount =
     mobile.audits.failed.filter(a => a.score !== null && a.score > 0 && a.score < 0.5).length +
     desktop.audits.failed.filter(a => a.score !== null && a.score > 0 && a.score < 0.5).length;
 
-  const opportunitiesCount =
+  let opportunitiesCount =
     mobile.audits.opportunities.length +
     desktop.audits.opportunities.length;
+
+  // Add issues from HTML analysis
+  if (htmlAnalysis) {
+    const allIssues = [
+      ...htmlAnalysis.metaTags.issues,
+      ...htmlAnalysis.headings.issues,
+      ...htmlAnalysis.images.issues,
+      ...htmlAnalysis.links.issues,
+      ...htmlAnalysis.schema.issues,
+    ];
+
+    criticalCount += allIssues.filter((i) => i.severity === "critical").length;
+    warningsCount += allIssues.filter((i) => i.severity === "warning").length;
+    opportunitiesCount += allIssues.filter((i) => i.severity === "info").length;
+  }
 
   return {
     scores: {
       overall: overallScore,
       technical: seoScore,
       performance: performanceScore,
-      content: Math.round((seoScore + accessibilityScore) / 2),
+      content: contentScore,
       mobile: mobile.scores.performance,
       security: bestPracticesScore,
     },
@@ -77,7 +144,7 @@ function mapPageSpeedToReport(mobile: PageSpeedResult, desktop: PageSpeedResult)
   };
 }
 
-// POST /api/audits/[auditId]/run - Run the PageSpeed analysis
+// POST /api/audits/[auditId]/run - Run the full SEO analysis
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { auditId } = await params;
@@ -109,20 +176,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await updateAudit(auditId, { status: "processing" });
 
     try {
-      // Run PageSpeed analysis for both mobile and desktop
-      const { mobile, desktop } = await runFullAnalysis(audit.websiteUrl);
+      // Run PageSpeed and HTML analysis in parallel
+      const [pageSpeedResults, htmlAnalysis] = await Promise.all([
+        runFullAnalysis(audit.websiteUrl),
+        analyzeHTML(audit.websiteUrl).catch((err) => {
+          console.warn("HTML analysis failed:", err.message);
+          return null;
+        }),
+      ]);
 
-      // Map results to our report format
-      const reportData = mapPageSpeedToReport(mobile, desktop);
+      const { mobile, desktop } = pageSpeedResults;
+
+      // Map results to our report format (now includes HTML analysis)
+      const reportData = mapPageSpeedToReport(mobile, desktop, htmlAnalysis);
 
       // Update audit with results
       const updatedAudit = await updateAudit(auditId, {
         status: "completed",
         completedAt: new Date(),
-        pagesScanned: 1, // PageSpeed only analyzes single page
+        pagesScanned: 1,
         scores: reportData.scores,
         issuesCount: reportData.issuesCount,
         pageSpeedResults: { mobile, desktop },
+        htmlAnalysis,
       });
 
       return NextResponse.json({
@@ -133,6 +209,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             ...reportData,
             mobileResults: mobile,
             desktopResults: desktop,
+            htmlAnalysis,
           },
         },
       });

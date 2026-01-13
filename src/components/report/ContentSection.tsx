@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Check, X, AlertTriangle } from "lucide-react";
+import { Check, X, AlertTriangle, ExternalLink, FileText, Hash, Image, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReportData } from "@/lib/mock-data/reports";
 import { IssuesTable } from "./IssuesTable";
@@ -37,8 +37,48 @@ function MetricCard({
   );
 }
 
+// Component to show actual meta tag values
+function MetaTagDisplay({ label, value, maxLength, icon: Icon }: {
+  label: string;
+  value: string | null;
+  maxLength?: number;
+  icon?: any;
+}) {
+  const isGood = value && (!maxLength || (value.length >= 30 && value.length <= maxLength));
+  const isTooLong = value && maxLength && value.length > maxLength;
+  const isTooShort = value && value.length > 0 && value.length < 30;
+
+  return (
+    <div className="p-4 rounded-lg border bg-card">
+      <div className="flex items-center gap-2 mb-2">
+        {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
+        <span className="font-medium text-sm">{label}</span>
+        {value ? (
+          <Badge variant="outline" className={cn(
+            "ml-auto text-xs",
+            isGood ? "bg-green-50 text-green-700 border-green-200" :
+            isTooLong ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+            isTooShort ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+            "bg-red-50 text-red-700 border-red-200"
+          )}>
+            {value.length} chars
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="ml-auto text-xs bg-red-50 text-red-700 border-red-200">
+            Missing
+          </Badge>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground line-clamp-2">
+        {value || "Not found"}
+      </p>
+    </div>
+  );
+}
+
 export function ContentSection({ report }: ContentSectionProps) {
   const { contentData } = report;
+  const htmlAnalysis = report.htmlAnalysis;
   const contentIssues = report.issues.filter((i) => i.category === "content");
 
   const totalMetaIssues =
@@ -52,14 +92,71 @@ export function ContentSection({ report }: ContentSectionProps) {
     contentData.headings.multipleH1 +
     contentData.headings.skippedLevels;
 
-  const imageOptimizationRate = Math.round(
-    ((contentData.images.total - contentData.images.missingAlt) /
-      contentData.images.total) *
-      100
-  );
+  const imageOptimizationRate = contentData.images.total > 0
+    ? Math.round(
+        ((contentData.images.total - contentData.images.missingAlt) /
+          contentData.images.total) *
+          100
+      )
+    : 100;
 
   return (
     <div className="space-y-6">
+      {/* Detected Meta Tags */}
+      {htmlAnalysis?.metaTags && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Detected Meta Tags
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2">
+              <MetaTagDisplay
+                label="Title Tag"
+                value={htmlAnalysis.metaTags.title}
+                maxLength={60}
+                icon={FileText}
+              />
+              <MetaTagDisplay
+                label="Meta Description"
+                value={htmlAnalysis.metaTags.description}
+                maxLength={160}
+                icon={FileText}
+              />
+              <MetaTagDisplay
+                label="Canonical URL"
+                value={htmlAnalysis.metaTags.canonical}
+                icon={Link2}
+              />
+              <MetaTagDisplay
+                label="Language"
+                value={htmlAnalysis.metaTags.language}
+                icon={FileText}
+              />
+            </div>
+            {(htmlAnalysis.metaTags.ogTitle || htmlAnalysis.metaTags.ogDescription) && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-sm font-medium mb-3">Open Graph Tags</p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <MetaTagDisplay
+                    label="OG Title"
+                    value={htmlAnalysis.metaTags.ogTitle}
+                    icon={ExternalLink}
+                  />
+                  <MetaTagDisplay
+                    label="OG Description"
+                    value={htmlAnalysis.metaTags.ogDescription}
+                    icon={ExternalLink}
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Meta Tags Analysis */}
       <Card>
         <CardHeader>
@@ -133,10 +230,13 @@ export function ContentSection({ report }: ContentSectionProps) {
       {/* Heading Structure */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Heading Structure</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Hash className="h-4 w-4" />
+            Heading Structure
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <MetricCard
               label="Missing H1"
               value={contentData.headings.missingH1}
@@ -162,13 +262,50 @@ export function ContentSection({ report }: ContentSectionProps) {
               }
             />
           </div>
+
+          {/* Heading Outline */}
+          {htmlAnalysis?.headings?.structure && htmlAnalysis.headings.structure.length > 0 && (
+            <div className="border rounded-lg p-4 bg-muted/30">
+              <p className="text-sm font-medium mb-3">Heading Outline</p>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {htmlAnalysis.headings.structure.slice(0, 20).map((heading: any, i: number) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 text-sm"
+                    style={{ paddingLeft: `${(heading.level - 1) * 16}px` }}
+                  >
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "text-xs font-mono w-8 justify-center",
+                        heading.level === 1 ? "bg-primary/10 text-primary border-primary/20" : ""
+                      )}
+                    >
+                      H{heading.level}
+                    </Badge>
+                    <span className="text-muted-foreground truncate">
+                      {heading.text || "(empty)"}
+                    </span>
+                  </div>
+                ))}
+                {htmlAnalysis.headings.structure.length > 20 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ... and {htmlAnalysis.headings.structure.length - 20} more headings
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       {/* Image SEO */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Image SEO</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Image className="h-4 w-4" />
+            Image SEO
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-6 md:grid-cols-2">
@@ -217,7 +354,10 @@ export function ContentSection({ report }: ContentSectionProps) {
       {/* Links Analysis */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Links Analysis</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Link2 className="h-4 w-4" />
+            Links Analysis
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -109,6 +109,8 @@ export interface ReportData {
     impact: string;
     effort: "quick" | "medium" | "complex";
   }[];
+  // Raw HTML analysis data for detailed views
+  htmlAnalysis?: any;
 }
 
 export const mockReportData: ReportData = {

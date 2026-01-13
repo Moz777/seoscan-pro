@@ -14,12 +14,13 @@ import {
   deleteAuditFromFirestore,
 } from "./firestore-audits";
 
-// Extended audit type with PageSpeed results
+// Extended audit type with PageSpeed and HTML analysis results
 export interface StoredAudit extends Audit {
   pageSpeedResults?: {
     mobile?: any;
     desktop?: any;
   };
+  htmlAnalysis?: any;
   error?: string;
 }
 
