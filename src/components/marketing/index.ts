@@ -1,0 +1,9 @@
+export { Hero } from "./Hero";
+export { ValueProposition } from "./ValueProposition";
+export { ComparisonTable } from "./ComparisonTable";
+export { HowItWorks } from "./HowItWorks";
+export { FeaturesShowcase } from "./FeaturesShowcase";
+export { PricingTable } from "./PricingTable";
+export { Testimonials } from "./Testimonials";
+export { FAQ } from "./FAQ";
+export { CTASection } from "./CTASection";
