@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ReportHeader,
@@ -10,18 +11,68 @@ import {
   ContentSection,
   RecommendationsSection,
 } from "@/components/report";
-import { getReportData } from "@/lib/mock-data";
-import { LayoutDashboard, Wrench, Gauge, FileText, ListChecks } from "lucide-react";
+import { getReportData, ReportData } from "@/lib/mock-data";
+import { LayoutDashboard, Wrench, Gauge, FileText, ListChecks, Loader2 } from "lucide-react";
 
 export default function AuditReportPage() {
   const params = useParams();
   const auditId = params.auditId as string;
-  const report = getReportData(auditId);
+  const [report, setReport] = useState<ReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!report) {
+  useEffect(() => {
+    async function fetchReport() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // First try to fetch from API (real audit)
+        const response = await fetch(`/api/audits/${auditId}/report`);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+          setReport(result.data);
+        } else {
+          // Fall back to mock data for demo audits
+          const mockReport = getReportData(auditId);
+          if (mockReport) {
+            setReport(mockReport);
+          } else {
+            setError(result.error || "Report not found");
+          }
+        }
+      } catch (err) {
+        // Fall back to mock data on network error
+        const mockReport = getReportData(auditId);
+        if (mockReport) {
+          setReport(mockReport);
+        } else {
+          setError("Failed to load report");
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchReport();
+  }, [auditId]);
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Report not found</p>
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading report...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !report) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">{error || "Report not found"}</p>
       </div>
     );
   }

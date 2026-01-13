@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import {
   Globe,
   ArrowRight,
@@ -22,9 +23,11 @@ import {
   CreditCard,
   Lock,
   Loader2,
+  AlertCircle,
+  Search,
 } from "lucide-react";
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | "processing" | "complete" | "error";
 type Tier = "basic" | "professional" | "agency";
 
 interface TierOption {
@@ -95,6 +98,10 @@ export function AuditWizard() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [auditId, setAuditId] = useState<string | null>(null);
 
   // Form state
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -118,12 +125,80 @@ export function AuditWizard() {
     setCompetitors(competitors.filter((_, i) => i !== index));
   };
 
+  // Normalize URL
+  const normalizeUrl = (url: string): string => {
+    let normalized = url.trim();
+    if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+      normalized = "https://" + normalized;
+    }
+    return normalized;
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    // Simulate payment processing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    // Redirect to dashboard with success
-    router.push("/dashboard");
+    setCurrentStep("processing");
+    setProgress(0);
+    setError(null);
+
+    try {
+      // Step 1: Create audit
+      setProgressMessage("Creating audit...");
+      setProgress(10);
+
+      const normalizedUrl = normalizeUrl(websiteUrl);
+
+      const createResponse = await fetch("/api/audits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          websiteUrl: normalizedUrl,
+          displayName: websiteName || new URL(normalizedUrl).hostname,
+          tier: selectedTier,
+        }),
+      });
+
+      const createResult = await createResponse.json();
+
+      if (!createResult.success) {
+        throw new Error(createResult.error || "Failed to create audit");
+      }
+
+      const newAuditId = createResult.data.id;
+      setAuditId(newAuditId);
+      setProgress(20);
+
+      // Step 2: Run PageSpeed analysis
+      setProgressMessage("Analyzing website performance...");
+      setProgress(30);
+
+      // Simulate progress updates during analysis
+      const progressInterval = setInterval(() => {
+        setProgress((prev) => Math.min(prev + 5, 85));
+      }, 2000);
+
+      const runResponse = await fetch(`/api/audits/${newAuditId}/run`, {
+        method: "POST",
+      });
+
+      clearInterval(progressInterval);
+
+      const runResult = await runResponse.json();
+
+      if (!runResult.success) {
+        throw new Error(runResult.error || "Analysis failed");
+      }
+
+      setProgress(100);
+      setProgressMessage("Analysis complete!");
+      setCurrentStep("complete");
+
+    } catch (err: any) {
+      console.error("Audit error:", err);
+      setError(err.message || "An error occurred");
+      setCurrentStep("error");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const canProceed = () => {
@@ -141,50 +216,68 @@ export function AuditWizard() {
     }
   };
 
+  // Helper to check step progress
+  const isStepComplete = (stepNumber: number) => {
+    if (typeof currentStep === "string") {
+      // All steps are complete when processing/complete/error
+      return true;
+    }
+    return currentStep > stepNumber;
+  };
+
+  const isStepActive = (stepNumber: number) => {
+    if (typeof currentStep === "string") {
+      return true; // All steps appear active during processing
+    }
+    return currentStep >= stepNumber;
+  };
+
   return (
     <div className="space-y-8">
-      {/* Progress Steps */}
-      <div className="flex items-center justify-between">
-        {steps.map((step, index) => (
-          <div key={step.number} className="flex items-center">
-            <div className="flex flex-col items-center">
-              <div
-                className={cn(
-                  "flex items-center justify-center w-10 h-10 rounded-full border-2 font-semibold transition-colors",
-                  currentStep >= step.number
-                    ? "bg-primary border-primary text-primary-foreground"
-                    : "border-muted-foreground/30 text-muted-foreground"
-                )}
-              >
-                {currentStep > step.number ? (
-                  <Check className="h-5 w-5" />
-                ) : (
-                  step.number
-                )}
+      {/* Progress Steps - hide during processing/complete/error */}
+      {typeof currentStep === "number" && (
+        <div className="flex items-center justify-between">
+          {steps.map((step, index) => (
+            <div key={step.number} className="flex items-center">
+              <div className="flex flex-col items-center">
+                <div
+                  className={cn(
+                    "flex items-center justify-center w-10 h-10 rounded-full border-2 font-semibold transition-colors",
+                    isStepActive(step.number)
+                      ? "bg-primary border-primary text-primary-foreground"
+                      : "border-muted-foreground/30 text-muted-foreground"
+                  )}
+                >
+                  {isStepComplete(step.number) ? (
+                    <Check className="h-5 w-5" />
+                  ) : (
+                    step.number
+                  )}
+                </div>
+                <span
+                  className={cn(
+                    "text-sm mt-2",
+                    isStepActive(step.number)
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {step.label}
+                </span>
               </div>
-              <span
-                className={cn(
-                  "text-sm mt-2",
-                  currentStep >= step.number
-                    ? "text-primary font-medium"
-                    : "text-muted-foreground"
-                )}
-              >
-                {step.label}
-              </span>
+              {index < steps.length - 1 && (
+                <div
+                  className={cn(
+                    "w-full h-0.5 mx-4",
+                    isStepComplete(step.number) ? "bg-primary" : "bg-muted"
+                  )}
+                  style={{ width: "80px" }}
+                />
+              )}
             </div>
-            {index < steps.length - 1 && (
-              <div
-                className={cn(
-                  "w-full h-0.5 mx-4",
-                  currentStep > step.number ? "bg-primary" : "bg-muted"
-                )}
-                style={{ width: "80px" }}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Step Content */}
       <Card>
@@ -375,7 +468,7 @@ export function AuditWizard() {
               <div className="text-center mb-8">
                 <h2 className="text-xl font-semibold">Complete your order</h2>
                 <p className="text-muted-foreground mt-1">
-                  Review your audit details and proceed to payment
+                  Review your audit details and start the analysis
                 </p>
               </div>
 
@@ -404,84 +497,174 @@ export function AuditWizard() {
                   </div>
                 </div>
 
-                {/* Payment Form Placeholder */}
-                <div className="border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-muted-foreground" />
-                    <span className="font-medium">Payment Details</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="card">Card Number</Label>
-                      <Input
-                        id="card"
-                        placeholder="4242 4242 4242 4242"
-                      />
+                {/* Demo Notice */}
+                <div className="border border-blue-200 bg-blue-50 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <Search className="h-5 w-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-blue-900">Demo Mode</h4>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Payment is skipped in demo mode. Click &quot;Start Analysis&quot; to run a real PageSpeed Insights audit on your website.
+                      </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="expiry">Expiry</Label>
-                        <Input id="expiry" placeholder="MM/YY" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="cvc">CVC</Label>
-                        <Input id="cvc" placeholder="123" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Lock className="h-3 w-3" />
-                    <span>Secured by Stripe. Your payment is protected.</span>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Navigation Buttons */}
-          <div className="flex justify-between mt-8 pt-6 border-t">
-            <Button
-              variant="outline"
-              onClick={() => setCurrentStep((currentStep - 1) as Step)}
-              disabled={currentStep === 1}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
+          {/* Processing State */}
+          {currentStep === "processing" && (
+            <div className="py-12">
+              <div className="text-center max-w-md mx-auto space-y-6">
+                <div className="flex justify-center">
+                  <div className="relative">
+                    <div className="w-20 h-20 border-4 border-primary/20 rounded-full"></div>
+                    <div className="absolute inset-0 w-20 h-20 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <Search className="absolute inset-0 m-auto h-8 w-8 text-primary" />
+                  </div>
+                </div>
 
-            {currentStep < 4 ? (
-              <Button
-                onClick={() => setCurrentStep((currentStep + 1) as Step)}
-                disabled={!canProceed()}
-              >
-                Continue
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            ) : (
-              <Button onClick={handleSubmit} disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    Pay ${selectedTierData.price}
+                <div>
+                  <h2 className="text-xl font-semibold">Analyzing Your Website</h2>
+                  <p className="text-muted-foreground mt-1">{progressMessage}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Progress value={progress} className="h-2" />
+                  <p className="text-sm text-muted-foreground">{progress}% complete</p>
+                </div>
+
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>This typically takes 30-60 seconds.</p>
+                  <p>We&apos;re checking performance, SEO, and accessibility.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Complete State */}
+          {currentStep === "complete" && (
+            <div className="py-12">
+              <div className="text-center max-w-md mx-auto space-y-6">
+                <div className="flex justify-center">
+                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
+                    <Check className="h-10 w-10 text-green-600" />
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold">Analysis Complete!</h2>
+                  <p className="text-muted-foreground mt-1">
+                    Your SEO audit for {websiteName || websiteUrl} is ready.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Button
+                    onClick={() => router.push(`/audits/${auditId}`)}
+                    className="w-full"
+                  >
+                    View Report
                     <ArrowRight className="h-4 w-4 ml-2" />
-                  </>
-                )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push("/dashboard")}
+                    className="w-full"
+                  >
+                    Go to Dashboard
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error State */}
+          {currentStep === "error" && (
+            <div className="py-12">
+              <div className="text-center max-w-md mx-auto space-y-6">
+                <div className="flex justify-center">
+                  <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center">
+                    <AlertCircle className="h-10 w-10 text-red-600" />
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold">Analysis Failed</h2>
+                  <p className="text-muted-foreground mt-1">
+                    {error || "Something went wrong. Please try again."}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Button
+                    onClick={() => {
+                      setCurrentStep(4);
+                      setError(null);
+                    }}
+                    className="w-full"
+                  >
+                    Try Again
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push("/dashboard")}
+                    className="w-full"
+                  >
+                    Go to Dashboard
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Buttons - only show for numbered steps */}
+          {typeof currentStep === "number" && (
+            <div className="flex justify-between mt-8 pt-6 border-t">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentStep((currentStep - 1) as Step)}
+                disabled={currentStep === 1}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
               </Button>
-            )}
-          </div>
+
+              {currentStep < 4 ? (
+                <Button
+                  onClick={() => setCurrentStep((currentStep + 1) as Step)}
+                  disabled={!canProceed()}
+                >
+                  Continue
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              ) : (
+                <Button onClick={handleSubmit} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-4 w-4 mr-2" />
+                      Start Analysis
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Money-back guarantee */}
-      <p className="text-center text-sm text-muted-foreground">
-        100% money-back guarantee if we don&apos;t find any issues worth fixing.
-      </p>
+      {/* Money-back guarantee - only show for numbered steps */}
+      {typeof currentStep === "number" && (
+        <p className="text-center text-sm text-muted-foreground">
+          100% money-back guarantee if we don&apos;t find any issues worth fixing.
+        </p>
+      )}
     </div>
   );
 }
