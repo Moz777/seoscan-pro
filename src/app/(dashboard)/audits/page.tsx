@@ -31,13 +31,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { mockAudits } from "@/lib/mock-data";
+import { getAllAudits } from "@/lib/services/audit-store";
 import { AuditStatus, AuditTier } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "My Audits",
   description: "View and manage all your SEO audits.",
 };
+
+// Ensure fresh data on each request
+export const dynamic = "force-dynamic";
 
 const statusConfig: Record<
   AuditStatus,
@@ -83,8 +86,12 @@ function getScoreBgColor(score: number): string {
   return "bg-red-100";
 }
 
-export default function AuditsPage() {
-  const audits = mockAudits;
+export default async function AuditsPage() {
+  const allAudits = await getAllAudits();
+  // Sort by createdAt descending
+  const audits = [...allAudits].sort(
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+  );
 
   return (
     <div className="space-y-6">

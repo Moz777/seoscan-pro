@@ -1,11 +1,21 @@
 /**
- * Simple in-memory audit storage
- * TODO: Replace with Firestore in production
+ * Unified Audit Storage Service
+ * Uses Firestore when configured, falls back to in-memory storage
  */
 
 import { Audit, AuditStatus, AuditTier } from "@/lib/types";
+import {
+  isFirestoreAvailable,
+  createAuditInFirestore,
+  getAuditFromFirestore,
+  updateAuditInFirestore,
+  getAllAuditsFromFirestore,
+  getUserAuditsFromFirestore,
+  deleteAuditFromFirestore,
+} from "./firestore-audits";
 
-interface StoredAudit extends Audit {
+// Extended audit type with PageSpeed results
+export interface StoredAudit extends Audit {
   pageSpeedResults?: {
     mobile?: any;
     desktop?: any;
@@ -13,15 +23,17 @@ interface StoredAudit extends Audit {
   error?: string;
 }
 
-// In-memory store (will reset on server restart)
-const audits = new Map<string, StoredAudit>();
+// ============================================
+// In-Memory Fallback Storage
+// ============================================
 
-// Generate unique ID
+const memoryAudits = new Map<string, StoredAudit>();
+
 function generateId(): string {
   return `aud_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-export function createAudit(data: {
+function createAuditInMemory(data: {
   websiteUrl: string;
   displayName: string;
   tier: AuditTier;
@@ -55,34 +67,146 @@ export function createAudit(data: {
     },
   };
 
-  audits.set(id, audit);
+  memoryAudits.set(id, audit);
   return audit;
 }
 
-export function getAudit(id: string): StoredAudit | null {
-  return audits.get(id) || null;
+function getAuditFromMemory(id: string): StoredAudit | null {
+  return memoryAudits.get(id) || null;
 }
 
-export function updateAudit(id: string, updates: Partial<StoredAudit>): StoredAudit | null {
-  const audit = audits.get(id);
+function updateAuditInMemory(
+  id: string,
+  updates: Partial<StoredAudit>
+): StoredAudit | null {
+  const audit = memoryAudits.get(id);
   if (!audit) return null;
 
   const updated = { ...audit, ...updates };
-  audits.set(id, updated);
+  memoryAudits.set(id, updated);
   return updated;
 }
 
-export function getAllAudits(userId?: string): StoredAudit[] {
-  const all = Array.from(audits.values());
+function getAllAuditsFromMemory(userId?: string): StoredAudit[] {
+  const all = Array.from(memoryAudits.values());
   if (userId) {
     return all.filter((a) => a.userId === userId);
   }
   return all;
 }
 
-export function deleteAudit(id: string): boolean {
-  return audits.delete(id);
+function deleteAuditFromMemory(id: string): boolean {
+  return memoryAudits.delete(id);
 }
 
-// Export type
-export type { StoredAudit };
+// ============================================
+// Unified API (auto-selects storage backend)
+// ============================================
+
+/**
+ * Create a new audit
+ */
+export async function createAudit(data: {
+  websiteUrl: string;
+  displayName: string;
+  tier: AuditTier;
+  userId?: string;
+}): Promise<StoredAudit> {
+  // Try Firestore first
+  if (isFirestoreAvailable()) {
+    const audit = await createAuditInFirestore(data);
+    if (audit) {
+      console.log(`[Firestore] Created audit: ${audit.id}`);
+      return audit as StoredAudit;
+    }
+  }
+
+  // Fallback to memory
+  const audit = createAuditInMemory(data);
+  console.log(`[Memory] Created audit: ${audit.id}`);
+  return audit;
+}
+
+/**
+ * Get audit by ID
+ */
+export async function getAudit(id: string): Promise<StoredAudit | null> {
+  // Try Firestore first
+  if (isFirestoreAvailable()) {
+    const audit = await getAuditFromFirestore(id);
+    if (audit) {
+      return audit as StoredAudit;
+    }
+  }
+
+  // Fallback to memory
+  return getAuditFromMemory(id);
+}
+
+/**
+ * Update audit
+ */
+export async function updateAudit(
+  id: string,
+  updates: Partial<StoredAudit>
+): Promise<StoredAudit | null> {
+  // Try Firestore first
+  if (isFirestoreAvailable()) {
+    const audit = await updateAuditInFirestore(id, updates);
+    if (audit) {
+      console.log(`[Firestore] Updated audit: ${id}`);
+      return audit as StoredAudit;
+    }
+  }
+
+  // Fallback to memory
+  const audit = updateAuditInMemory(id, updates);
+  if (audit) {
+    console.log(`[Memory] Updated audit: ${id}`);
+  }
+  return audit;
+}
+
+/**
+ * Get all audits (optionally filtered by user)
+ */
+export async function getAllAudits(userId?: string): Promise<StoredAudit[]> {
+  // Try Firestore first
+  if (isFirestoreAvailable()) {
+    const audits = userId
+      ? await getUserAuditsFromFirestore(userId)
+      : await getAllAuditsFromFirestore();
+    return audits as StoredAudit[];
+  }
+
+  // Fallback to memory
+  return getAllAuditsFromMemory(userId);
+}
+
+/**
+ * Delete audit
+ */
+export async function deleteAudit(id: string): Promise<boolean> {
+  // Try Firestore first
+  if (isFirestoreAvailable()) {
+    const deleted = await deleteAuditFromFirestore(id);
+    if (deleted) {
+      console.log(`[Firestore] Deleted audit: ${id}`);
+      return true;
+    }
+  }
+
+  // Fallback to memory
+  const deleted = deleteAuditFromMemory(id);
+  if (deleted) {
+    console.log(`[Memory] Deleted audit: ${id}`);
+  }
+  return deleted;
+}
+
+/**
+ * Check which storage backend is being used
+ */
+export function getStorageBackend(): "firestore" | "memory" {
+  return isFirestoreAvailable() ? "firestore" : "memory";
+}

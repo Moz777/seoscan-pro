@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAudit, deleteAudit } from "@/lib/services/audit-store";
+import { getAudit, deleteAudit, getStorageBackend } from "@/lib/services/audit-store";
 
 interface RouteParams {
   params: Promise<{ auditId: string }>;
@@ -9,7 +9,7 @@ interface RouteParams {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { auditId } = await params;
-    const audit = getAudit(auditId);
+    const audit = await getAudit(auditId);
 
     if (!audit) {
       return NextResponse.json(
@@ -21,6 +21,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       data: audit,
+      storage: getStorageBackend(),
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { auditId } = await params;
-    const deleted = deleteAudit(auditId);
+    const deleted = await deleteAudit(auditId);
 
     if (!deleted) {
       return NextResponse.json(

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAudit, getAllAudits } from "@/lib/services/audit-store";
+import { createAudit, getAllAudits, getStorageBackend } from "@/lib/services/audit-store";
 import { AuditTier } from "@/lib/types";
 
 // GET /api/audits - List all audits
 export async function GET(request: NextRequest) {
   try {
-    const audits = getAllAudits();
+    const audits = await getAllAudits();
 
     // Sort by createdAt descending
     audits.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: audits,
+      storage: getStorageBackend(),
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the audit
-    const audit = createAudit({
+    const audit = await createAudit({
       websiteUrl: url.href,
       displayName: body.displayName || url.hostname,
       tier,
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: audit,
+      storage: getStorageBackend(),
     });
   } catch (error: any) {
     return NextResponse.json(

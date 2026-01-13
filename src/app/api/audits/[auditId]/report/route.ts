@@ -158,7 +158,7 @@ function auditToReportData(audit: StoredAudit): ReportData | null {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { auditId } = await params;
-    const audit = getAudit(auditId);
+    const audit = await getAudit(auditId);
 
     if (!audit) {
       return NextResponse.json(

@@ -81,7 +81,7 @@ function mapPageSpeedToReport(mobile: PageSpeedResult, desktop: PageSpeedResult)
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { auditId } = await params;
-    const audit = getAudit(auditId);
+    const audit = await getAudit(auditId);
 
     if (!audit) {
       return NextResponse.json(
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Update status to processing
-    updateAudit(auditId, { status: "processing" });
+    await updateAudit(auditId, { status: "processing" });
 
     try {
       // Run PageSpeed analysis for both mobile and desktop
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const reportData = mapPageSpeedToReport(mobile, desktop);
 
       // Update audit with results
-      const updatedAudit = updateAudit(auditId, {
+      const updatedAudit = await updateAudit(auditId, {
         status: "completed",
         completedAt: new Date(),
         pagesScanned: 1, // PageSpeed only analyzes single page
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
     } catch (analysisError: any) {
       // Update audit with error status
-      updateAudit(auditId, {
+      await updateAudit(auditId, {
         status: "failed",
         error: analysisError.message,
       });
